@@ -1054,9 +1054,6 @@ can do it easily with ICS. But you can do it much more easily using another
 freeware product from François Piette: MidWare. Available from the same web
 site http://www.overbyte.be.
 
-francois.piette@overbyte.be \
-francois.piette@swing.be \
-http://www.overbyte.be/ \
-http://wiki.overbyte.eu/
-
-
+Emails: francois.piette@overbyte.be, francois.piette@swing.be \
+Sites: http://www.overbyte.be, http://wiki.overbyte.eu \
+Blog: http://francois-piette.blogspot.com

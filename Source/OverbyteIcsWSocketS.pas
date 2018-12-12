@@ -4,7 +4,7 @@ Author:       François PIETTE
 Description:  A TWSocket that has server functions: it listen to connections
               an create other TWSocket to handle connection for each client.
 Creation:     Aug 29, 1999
-Version:      8.58
+Version:      8.59
 EMail:        francois.piette@overbyte.be     http://www.overbyte.be
 Support:      Use the mailing list twsocket@elists.org
               Follow "support" link at http://www.overbyte.be for subscription.
@@ -168,7 +168,7 @@ Feb 14, 2018  V8.52 Better error reporting when validating SSL certificates
                     Add TLSv3 ciphers for OpenSSL 1.1.1 and later only
 Jun 12, 2018  V8.55 sslSrvSecInter/FS now requires TLS1.1, PCI council EOF TLS1.0 30 June 2018
 Jul 6, 2018   V8.56 Added OnSslAlpnSelect called after OnSslServerName for HTTP/2.
-Oct 5, 2018  V8.57  Fixed bug so that a newly found SSL certificate is immediately
+Oct 5, 2018   V8.57 Fixed bug so that a newly found SSL certificate is immediately
                       loaded to the context.
                     IcsHosts INI file now accepts enum string for SslSecLevel, ie
                        SslSecLevel=sslSrvSecHigh as well as sslSrvSecHigh=5 .
@@ -188,7 +188,13 @@ Oct 5, 2018  V8.57  Fixed bug so that a newly found SSL certificate is immediate
                        from ValidateHosts and RecheckSslCerts.
 Oct 19, 2018  V8.58 Increased ListenBacklog property default to 15 to handle
                       higher server loads before rejecting new connections.
-                    Documentation on IcsHosts and main components.   
+                    Documentation on IcsHosts and main components.
+Dec 04, 2018  V8.59 Sanity checks reading mistyped enumerated values from INI file.
+                    Updated ListenStates so unit compiles without USE_SSL
+                    Added AUTO_X509_CERTS define set in OverbyteIcsDefs.inc which
+                      can be disabled to remove a lot of units if automatic SSL/TLS
+                      ordering is not required, saves up to 350KB of code.
+
 
 
 Quick reference guide:
@@ -665,8 +671,8 @@ uses
     OverbyteIcsTypes;
 
 const
-    WSocketServerVersion     = 858;
-    CopyRight : String       = ' TWSocketServer (c) 1999-2018 F. Piette V8.58 ';
+    WSocketServerVersion     = 859;
+    CopyRight : String       = ' TWSocketServer (c) 1999-2018 F. Piette V8.59 ';
 
 type
     TCustomWSocketServer       = class;
@@ -1176,7 +1182,9 @@ type
         FSslCertAutoOrder: Boolean;               { V8.57 }
         FCertExpireDays: Integer;                 { V8.57 }
      { should be TSslX509Certs but causes circular reference, so need to cast }
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
         FSslX509Certs: TComponent;             { V8.57 }
+{$ENDIF} // AUTO_X509_CERTS
         procedure TriggerClientConnect(Client : TWSocketClient; Error : Word); override;
         function  MultiListenItemClass: TWSocketMultiListenItemClass; override;
     public
@@ -1198,8 +1206,10 @@ type
         function  LoadOneCert(HostNr: Integer; ForceLoad: Boolean;
                                              var LoadNew: Boolean): Boolean; { V8.57 }
         function  OrderCert(HostNr: Integer): Boolean;               { V8.57 }
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
         function  GetSslX509Certs: TComponent;                       { V8.57 }
         procedure SetSslX509Certs(const Value : TComponent);         { V8.57 }
+{$ENDIF} // AUTO_X509_CERTS
     published
         property  SslContext;
         property  Banner;
@@ -1221,8 +1231,10 @@ type
                                                          write FSslCertAutoOrder; { V8.57 }
         property  CertExpireDays: Integer                read  FCertExpireDays
                                                          write FCertExpireDays; { V8.57 }
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
         property  SslX509Certs: TComponent               read  GetSslX509Certs
                                                          write SetSslX509Certs; { V8.57 }
+{$ENDIF} // AUTO_X509_CERTS
         property  OnSslVerifyPeer;
         property  OnSslSetSessionIDContext;
         property  OnSslSvrNewSession;
@@ -1241,11 +1253,13 @@ function IcsLoadIcsHostsFromIni(MyIniFile: TCustomIniFile; IcsHosts:
 implementation
 
 {$IFDEF USE_SSL}
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
 {$IFDEF FMX}
 Uses Ics.Fmx.OverbyteIcsSslX509Certs;  { V8.57 }
 {$ELSE}
 Uses OverbyteIcsSslX509Certs; { V8.57 }
 {$ENDIF} // FMX
+{$ENDIF} // AUTO_X509_CERTS
 {$ENDIF} // USE_SSL
 
 const
@@ -2264,25 +2278,38 @@ end;
 function TCustomMultiListenWSocketServer.ListenStates: String;
 var
     K: integer ;
-    ListenItem: TSslWSocketMultiListenItem;
+{$IFDEF USE_SSL}
+    ListenItem: TSslWSocketMultiListenItem;    { V8.59 }
+{$ELSE}
+    ListenItem: TWSocketMultiListenItem;
+{$ENDIF}
 begin
     Result := 'Socket 1 State: ' + SocketStateNames[Self.FState] + ' ' +
                   SocketFamilyNames [Self.SocketFamily] + ' on ' +
                                         Self.Addr + ' port ' + Self.Port;
+{$IFDEF USE_SSL}
     if SslEnable then
         Result := Result + ' SSL' + #13#10
     else
+{$ENDIF}
         Result := Result + #13#10;
     if MultiListenSockets.Count > 0 then begin
         for K := 0 to MultiListenSockets.Count - 1 do begin
-            ListenItem := MultiListenSockets [K] as TSslWSocketMultiListenItem;
+            ListenItem := MultiListenSockets [K] as
+{$IFDEF USE_SSL}
+                TSslWSocketMultiListenItem;
+{$ELSE}
+                TWSocketMultiListenItem;
+{$ENDIF}
             Result := Result + 'Socket ' + IntToStr (K + 2) +
                  ' State: ' + SocketStateNames[ListenItem.FState] + ' ' +
                      SocketFamilyNames [ListenItem.SocketFamily] +
                        ' on ' + ListenItem.FAddr + ' port ' + ListenItem.FPort;
+{$IFDEF USE_SSL}
             if ListenItem.SslEnable then
                Result := Result + ' SSL' + #13#10
             else
+{$ENDIF}
                 Result := Result + #13#10;
         end;
     end;
@@ -2885,6 +2912,7 @@ end;
 
 
 {* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *}
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
 function  TSslWSocketServer.GetSslX509Certs: TComponent;                       { V8.57 }
 begin
     Result := FSslX509Certs;
@@ -2902,6 +2930,7 @@ begin
 end;
 
 
+{$ENDIF} // AUTO_X509_CERTS
 {* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *}
 { are we listening on this binding already }
 function TSslWSocketServer.FindBinding(const MAddr: String;
@@ -2929,13 +2958,16 @@ end;
 {* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *}
 { V8.57 order a new certificates from supplier }
 function TSslWSocketServer.OrderCert(HostNr: Integer): Boolean;
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
 var
     I: Integer;
     FName: String;
+{$ENDIF}
 begin
     Result := False;
     if (HostNr < 0) or (HostNr >= FIcsHosts.Count) then Exit;
     with FIcsHosts[HostNr] do begin
+{$IFDEF AUTO_X509_CERTS}  { V8.59 }
         if NOT FSslCertAutoOrder then begin
             FCertErrs := 'Server Certificate Ordering Disabled';
             Exit;
@@ -2962,6 +2994,7 @@ begin
             FCertErrs := 'Unsupported Challenge';
             Exit;
         end;
+
      // must be running HTTP server with .well-known path
         if WellKnownPath = '' then begin
             FCertErrs := 'No .Well-Known Directory Specified';
@@ -3036,6 +3069,9 @@ begin
                 end;
             end;
         end;
+{$ELSE}
+       FCertErrs := 'Server Does Not Support Certificate Ordering';
+{$ENDIF}
     end;
 end;
 
@@ -3665,9 +3701,9 @@ begin
             WellKnownPath := IcsTrim(MyIniFile.ReadString(section, 'WellKnownPath', ''));   { V8.49 }
             WebRedirectURL := IcsTrim(MyIniFile.ReadString(section, 'WebRedirectURL', '')); { V8.49 }
             WebRedirectStat := MyIniFile.ReadInteger(section, 'WebRedirectStat', 0);        { V8.49 }
+            CertSupplierProto := SuppProtoNone;   { V8.59 }
 
             if BindSslPort <> 0 then begin
-//                SslSrvSecurity := TSslSrvSecurity(MyIniFile.ReadInteger(section, 'SslSecLevel', 4));
                 S := IcsTrim(MyIniFile.ReadString(section, 'SslSecLevel', ''));
                 if S = '' then
                     V := -1
@@ -3684,14 +3720,22 @@ begin
               { V8.57 following are for automatic ordering and installation of SSL certificates }
                 CertSupplierProto := TSupplierProto(GetEnumValue (TypeInfo (TSupplierProto),
                           IcsTrim(MyIniFile.ReadString(section, 'CertSupplierProto', 'SuppProtoNone'))));
+                if CertSupplierProto > High(TSupplierProto) then
+                    CertSupplierProto := SuppProtoNone;                          { V8.59 sanity test }
                 CertDirWork := IcsTrim(MyIniFile.ReadString(section, 'CertDirWork', ''));
                 CertChallenge := TChallengeType(GetEnumValue (TypeInfo (TChallengeType),
                          IcsTrim(MyIniFile.ReadString(section, 'CertChallenge', 'ChallNone'))));
+                if CertChallenge > High(TChallengeType) then
+                    CertChallenge := ChallNone;                                 { V8.59 sanity test }
                 CertPKeyType := TSslPrivKeyType(GetEnumValue (TypeInfo (TSslPrivKeyType),
                          IcsTrim(MyIniFile.ReadString(section, 'CertPKeyType', 'PrivKeyRsa2048'))));
+                if CertPKeyType > High(TSslPrivKeyType) then
+                    CertPKeyType := PrivKeyRsa2048;                             { V8.59 sanity test }
                 CertProduct := IcsTrim(MyIniFile.ReadString(section, 'CertProduct', ''));
                 CertSignDigest := TEvpDigest(GetEnumValue (TypeInfo (TEvpDigest),
                          IcsTrim(MyIniFile.ReadString(section, 'CertSignDigest', 'Digest_sha256'))));
+                if CertSignDigest > High(TEvpDigest) then
+                    CertSignDigest := Digest_sha256;                          { V8.59 sanity test }
             end;
         end;
     end;
